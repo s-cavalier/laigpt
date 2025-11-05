@@ -1,7 +1,6 @@
-from core_math.tensor import Tensor, GradientFunction, DiagonalJacobianGradient
+from autograd.tensor import Tensor, GradientFunction, DiagonalJacobianGradient
 import numpy as np
 from abc import ABCMeta, abstractmethod
-
 
 class Function(metaclass=ABCMeta):
     @abstractmethod
@@ -161,21 +160,6 @@ class MatMul(Function):
 
 matrix_multiply = MatMul()
 
-class Sine(Function):
-    class Gradient(DiagonalJacobianGradient):
-        def forward(self, *inputs: np.ndarray) -> np.ndarray:
-            return np.cos(inputs[0])
-
-    def func_impl(self, *x: np.ndarray) -> np.ndarray:
-        return np.sin(x[0])
-    
-    gradient = Gradient()
-
-    def get_gradient(self):
-        return Sine.gradient
-
-sin = Sine()
-
 class Pow(Function):
     class Gradient(GradientFunction):
         def forward(self, *inputs: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -200,110 +184,3 @@ class Pow(Function):
         return Pow.gradient
 
 pow = Pow()
-
-class Exp(Function):
-    class Gradient(DiagonalJacobianGradient):
-        def forward(self, *inputs: np.ndarray) -> np.ndarray:
-            return np.exp(inputs[0])
-    
-    def func_impl(self, *x: np.ndarray) -> np.ndarray:
-        return np.exp(x[0])
-    
-    gradient = Gradient()
-    
-    def get_gradient(self):
-        return Exp.gradient
-    
-exp = Exp()
-
-class Log(Function):
-    class Gradient(DiagonalJacobianGradient):
-        def forward(self, *inputs: np.ndarray) -> np.ndarray:
-            (x,) = inputs
-            return 1.0 / x
-
-    def func_impl(self, *x: np.ndarray) -> np.ndarray:
-        (a,) = x
-        return np.log(a)
-    
-    gradient = Gradient()
-
-    def get_gradient(self):
-        return Log.gradient
-
-log = Log()
-    
-class Sqrt(Function):
-    class Gradient(DiagonalJacobianGradient):
-        def forward(self, *inputs: np.ndarray) -> np.ndarray:
-            (x,) = inputs
-            return 0.5 / np.sqrt(x)
-
-    def func_impl(self, *x: np.ndarray) -> np.ndarray:
-        (a,) = x
-        return np.sqrt(a)
-    
-    gradient = Gradient()
-
-    def get_gradient(self):
-        return Sqrt.gradient
-
-sqrt = Sqrt()
-
-class Sum(Function):
-    def __init__(self, axis=None, keepdims=False):
-        self.axis = axis
-        self.keepdims = keepdims
-
-    class Gradient(GradientFunction):
-        def __init__(self, axis=None, keepdims=False):
-            self.axis = axis
-            self.keepdims = keepdims
-
-        def forward(self, *inputs: np.ndarray) -> np.ndarray:
-            (x,) = inputs
-            return np.ones_like(x)
-
-        def backward(self, output: np.ndarray, *inputs: np.ndarray) -> np.ndarray:
-            (x,) = inputs
-            grad = output
-            if not self.keepdims and self.axis is not None:
-                grad = np.expand_dims(grad, axis=self.axis)
-            return np.ones_like(x) * grad
-
-    def func_impl(self, *x: np.ndarray) -> np.ndarray:
-        (a,) = x
-        return np.sum(a, axis=self.axis, keepdims=self.keepdims)
-
-    def get_gradient(self):
-        return Sum.Gradient(self.axis, self.keepdims)
-
-class Mean(Function):
-    def __init__(self, axis=None, keepdims=False):
-        self.axis = axis
-        self.keepdims = keepdims
-
-    class Gradient(GradientFunction):
-        def __init__(self, axis=None, keepdims=False):
-            self.axis = axis
-            self.keepdims = keepdims
-
-        def forward(self, *inputs: np.ndarray) -> np.ndarray:
-            (x,) = inputs
-            n = x.size if self.axis is None else x.shape[self.axis]
-            return np.full_like(x, 1.0 / n)
-
-        def backward(self, output: np.ndarray, *inputs: np.ndarray) -> np.ndarray:
-            (x,) = inputs
-            n = x.size if self.axis is None else x.shape[self.axis]
-            grad = output / n
-            if not self.keepdims and self.axis is not None:
-                grad = np.expand_dims(grad, axis=self.axis)
-            return np.ones_like(x) * grad
-
-    def func_impl(self, *x: np.ndarray) -> np.ndarray:
-        (a,) = x
-        return np.mean(a, axis=self.axis, keepdims=self.keepdims)
-
-    def get_gradient(self):
-        return Mean.Gradient(self.axis, self.keepdims)
