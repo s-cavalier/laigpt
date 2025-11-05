@@ -1,6 +1,7 @@
 from autograd.tensor import Tensor, GradientFunction, DiagonalJacobianGradient
 import numpy as np
 from abc import ABCMeta, abstractmethod
+from typing import Callable
 
 class Function(metaclass=ABCMeta):
     @abstractmethod
@@ -184,3 +185,61 @@ class Pow(Function):
         return Pow.gradient
 
 pow = Pow()
+
+
+# Views
+
+class ViewOperation(Function):
+    """
+    View operation classifies things like reshape, transpose, etc.
+    Since there's not really a reasonable gradient for such a thing (generally), 
+    you just need to specify a "reverse" operation in the back propagation in a subclass via super().__init__( reverse operation callable ).
+    For a transpose, this would be another transpose, for example.
+    """
+
+    class Gradient(GradientFunction):
+        def __init__(self, reverse_operation: Callable[ [np.ndarray], np.ndarray] ):
+            self.reverse_operation = reverse_operation
+
+        def forward(self, *inputs: np.ndarray) -> np.ndarray:
+            raise RuntimeError("Forward should not be called on a ViewGradient operation")
+        
+        def backward(self, output: np.ndarray, *inputs: np.ndarray) -> np.ndarray:
+            return self.reverse_operation(output)
+        
+    def __init__(self, reverse_operation: Callable[ [np.ndarray], np.ndarray ] ):
+        self.gradient = ViewOperation.Gradient(reverse_operation)
+
+    def get_gradient(self):
+        return self.gradient
+    
+class Reshape(ViewOperation):
+    def __init__(self, new_shape: tuple[int, ...]):
+        self.original_shape = None
+        self.new_shape = new_shape
+
+        def reverse( x: np.ndarray ) -> np.ndarray:
+            assert self.original_shape is not None, "Tried to call reverse() before ever running it initially"
+            return np.reshape(x, self.original_shape)
+        
+        super().__init__(reverse)
+
+    def func_impl(self, *x: np.ndarray):
+        self.original_shape = x[0].shape
+        return np.reshape( x[0], self.new_shape )
+    
+class Transpose(ViewOperation):
+    def __init__(self, axes=None):
+        self.axes = axes
+        self.inverse_axes = None
+
+        def reverse( x: np.ndarray ) -> np.ndarray: return np.transpose(x, self.inverse_axes)
+
+        super().__init__(reverse)
+
+    def func_impl(self, *x: np.ndarray) -> np.ndarray:
+        self.inverse_axes = ( np.argsort(self.axes) if self.axes is not None else None )
+        return np.transpose(x[0], self.axes)
+    
+
+    

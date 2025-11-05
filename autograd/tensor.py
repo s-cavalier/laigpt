@@ -182,6 +182,16 @@ class Tensor:
         if not isinstance(other, Tensor): other = Tensor.convert(other)
         from autograd.primitives import pow
         return pow(other, self)
+    
+    def reshape(self, shape: tuple[int, ...]):
+        from autograd.primitives import Reshape
+
+        return Reshape(shape)(self)
+    
+    def transpose(self, axes=None):
+        from autograd.primitives import Transpose
+        
+        return Transpose(axes)(self)
 
 
 def reduce_to_shape(grad: np.ndarray, target_shape: tuple[int, ...]) -> np.ndarray:
