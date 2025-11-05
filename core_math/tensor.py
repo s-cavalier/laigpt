@@ -60,26 +60,34 @@ class Tensor:
 
         for parent, gradient in zip(self.parents, local_gradients): parent.backpropagate(gradient)
 
+    def convert(value, track_grad = True):
+        if isinstance(value, int): return Tensor([value], track_grad)
+        if isinstance(value, float): return Tensor([value], track_grad)
+        raise RuntimeError(f"Cannot convert value of type {type(value)} to a Tensor")
 
     def __add__(self, other) -> 'Tensor':
+        if not isinstance(other, Tensor): other = Tensor.convert(other)
         
         # Avoid cyclic imports:
         from core_math.primitives import add
         return add(self, other)
     
     def __sub__(self, other) -> 'Tensor':
+        if not isinstance(other, Tensor): other = Tensor.convert(other)
         
         # Avoid cyclic imports:
         from core_math.primitives import subtract
         return subtract(self, other)
     
     def __mul__(self, other) -> 'Tensor':
+        if not isinstance(other, Tensor): other = Tensor.convert(other)
         
         # Avoid cyclic imports:
         from core_math.primitives import multiply
         return multiply(self, other)
     
     def __truediv__(self, other) -> 'Tensor':
+        if not isinstance(other, Tensor): other = Tensor.convert(other)
         
         # Avoid cyclic imports:
         from core_math.primitives import divide
@@ -96,3 +104,10 @@ class Tensor:
         # Avoid cyclic imports:
         from core_math.primitives import neg
         return neg(self)
+    
+    def __pow__(self, other):
+        if not isinstance(other, Tensor): other = Tensor.convert(other)
+        
+        # Avoid cyclic imports:
+        from core_math.primitives import pow
+        return pow(self, other)
