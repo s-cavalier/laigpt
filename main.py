@@ -29,7 +29,7 @@ loss_fn = F.MSE(Y_true)
 
 lr = 0.1
 
-pbar = tqdm(range(6_000_000), colour='red')
+pbar = tqdm(range(60_0_000), colour='red')
 
 for epoch in pbar:
     Y_pred = model(X)

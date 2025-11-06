@@ -197,3 +197,92 @@ class ReLU(Function):
         return ReLU.gradient
 
 relu = ReLU()
+
+class Softmax(Function):
+    def __init__(self, axis=-1):
+        self.axis = axis
+
+    class Gradient(GradientFunction):
+        def __init__(self, axis):
+            self.axis = axis
+
+        def forward(self, *inputs: np.ndarray) -> np.ndarray:
+            (x,) = inputs
+            # Compute stable softmax
+            e = np.exp(x - np.max(x, axis=self.axis, keepdims=True))
+            s = e / np.sum(e, axis=self.axis, keepdims=True)
+            return s
+
+        def backward(self, grad_output: np.ndarray, *inputs: np.ndarray) -> np.ndarray:
+            (x,) = inputs
+            s = self.forward(x)
+            # Vectorized softmax gradient (Jacobian-vector product)
+            dot = np.sum(grad_output * s, axis=self.axis, keepdims=True)
+            return s * (grad_output - dot)
+
+    def func_impl(self, *x: np.ndarray) -> np.ndarray:
+        (a,) = x
+        e = np.exp(a - np.max(a, axis=self.axis, keepdims=True))
+        return e / np.sum(e, axis=self.axis, keepdims=True)
+
+    def get_gradient(self):
+        return Softmax.Gradient(self.axis)
+
+softmax = Softmax()
+
+class CrossEntropyLoss(Function):
+
+    class Gradient(GradientFunction):
+        def __init__(self, targets: np.ndarray, axis=-1):
+            self.targets = np.asarray(targets)
+            self.axis = axis
+
+        def forward(self, *inputs: np.ndarray) -> np.ndarray:
+            (logits,) = inputs
+            shifted = logits - np.max(logits, axis=self.axis, keepdims=True)
+            e = np.exp(shifted)
+            probs = e / np.sum(e, axis=self.axis, keepdims=True)
+
+            if self.targets.ndim == 1:
+                n = logits.shape[0]
+                return -np.mean(np.log(probs[np.arange(n), self.targets.astype(int)] + 1e-12))
+            else:
+                return -np.mean(np.sum(self.targets * np.log(probs + 1e-12), axis=self.axis))
+
+        def backward(self, grad_output: np.ndarray, *inputs: np.ndarray) -> np.ndarray:
+            (logits,) = inputs
+            shifted = logits - np.max(logits, axis=self.axis, keepdims=True)
+            e = np.exp(shifted)
+            probs = e / np.sum(e, axis=self.axis, keepdims=True)
+
+            n = logits.shape[0]
+            grad_logits = probs.copy()
+            if self.targets.ndim == 1:
+                grad_logits[np.arange(n), self.targets.astype(int)] -= 1
+            else:
+                grad_logits -= self.targets
+
+            grad_logits /= n
+            grad_logits *= grad_output
+            return grad_logits
+
+    def __init__(self, targets: np.ndarray, axis=-1):
+        assert isinstance(targets, np.ndarray)
+        self.targets = np.asarray(targets)
+        self.axis = axis
+        self.gradient = CrossEntropyLoss.Gradient(self.targets, axis)
+
+    def func_impl(self, *x: np.ndarray) -> np.ndarray:
+        (logits,) = x
+        shifted = logits - np.max(logits, axis=self.axis, keepdims=True)
+        e = np.exp(shifted)
+        probs = e / np.sum(e, axis=self.axis, keepdims=True)
+
+        if self.targets.ndim == 1:
+            n = logits.shape[0]
+            return -np.mean(np.log(probs[np.arange(n), self.targets.astype(int)] + 1e-12))
+        else:
+            return -np.mean(np.sum(self.targets * np.log(probs + 1e-12), axis=self.axis))
+
+    def get_gradient(self):
+        return self.gradient

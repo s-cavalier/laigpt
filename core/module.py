@@ -56,21 +56,36 @@ class Module(metaclass=ABCMeta):
 
 # Wrappers
 
-class ReLU(Module):
-    def __init__(self):
-        super().__init__()
-        self.inst = F.ReLU()
 
+
+class WrapperModule(Module):
+    def __init__(self, FunctionType: type[F.Function]):
+        super().__init__()
+        
+        assert issubclass(FunctionType, F.Function)
+        self.inst = FunctionType()
+        
     def __call__(self, x):
         return self.inst(x)
 
-class Sigmoid(Module):
+class ReLU(WrapperModule):
     def __init__(self):
-        super().__init__()
-        self.inst = F.Sigmoid()
+        super().__init__(F.ReLU)
 
-    def __call__(self, x):
-        return self.inst(x)
+class Sigmoid(WrapperModule):
+    def __init__(self):
+        super().__init__(F.Sigmoid)
+
+class CrossEntropyLoss(Module):
+    def __init__(self, targets: np.ndarray):
+        super().__init__()
+        self.inst = F.CrossEntropyLoss(targets)
+
+    def __call__(self, logits: Tensor):
+        return self.inst(logits)
+
+
+# Some basics
 
 class Linear(Module):
     def __init__(self, in_dim: int, out_dim: int):

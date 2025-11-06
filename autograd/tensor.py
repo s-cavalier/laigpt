@@ -22,7 +22,7 @@ class GradientFunction(metaclass=ABCMeta):
 
 class DiagonalJacobianGradient(GradientFunction):
     def backward(self, output: np.ndarray, *inputs: np.ndarray) -> tuple[np.ndarray]:
-        return (output * self.forward(inputs[0]),)
+        return output * self.forward(inputs[0])
 
 
 class Tensor:

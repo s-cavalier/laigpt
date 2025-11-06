@@ -240,6 +240,3 @@ class Transpose(ViewOperation):
     def func_impl(self, *x: np.ndarray) -> np.ndarray:
         self.inverse_axes = ( np.argsort(self.axes) if self.axes is not None else None )
         return np.transpose(x[0], self.axes)
-    
-
-    
