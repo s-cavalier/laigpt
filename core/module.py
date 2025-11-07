@@ -76,6 +76,10 @@ class Sigmoid(WrapperModule):
     def __init__(self):
         super().__init__(F.Sigmoid)
 
+class Softmax(WrapperModule):
+    def __init__(self):
+        super().__init__(F.Softmax)
+
 class CrossEntropyLoss(Module):
     def __init__(self, targets: np.ndarray):
         super().__init__()
@@ -106,3 +110,41 @@ class Sequential(Module):
         for layer in self.submodules.values():
             x = layer(x)
         return x
+
+class Embedding(Module):
+    def __init__(self, vocab_size: int, dim: int):
+        super().__init__()
+        # Each row corresponds to one token's embedding vector
+        self.weight = Tensor(
+            np.random.randn(vocab_size, dim) / np.sqrt(vocab_size)
+        )
+
+    def __call__(self, x: Tensor) -> Tensor:
+        """
+        x: Tensor of integer token IDs, shape (batch, seq_len)
+        returns: Tensor of embeddings, shape (batch, seq_len, dim)
+        """
+        # Gather rows of the embedding matrix corresponding to token IDs
+        embed_values = self.weight.values[x.values.astype(int)]
+        return Tensor(embed_values)
+
+class LayerNorm(Module):
+    def __init__(self, dim: int, eps: float = 1e-5):
+        super().__init__()
+        self.gamma = Tensor(np.ones((dim,)))
+        self.beta = Tensor(np.zeros((dim,)))
+        self.eps = eps
+
+    def __call__(self, x: Tensor) -> Tensor:
+        """
+        x: Tensor of shape (batch, seq_len, dim) or (seq_len, dim)
+        returns: same shape
+        """
+        # Compute mean/variance over the last dimension (features)
+        mean = np.mean(x.values, axis=-1, keepdims=True)
+        var = np.var(x.values, axis=-1, keepdims=True)
+        norm = (x.values - mean) / np.sqrt(var + self.eps)
+
+        # Apply learnable affine parameters
+        out = self.gamma.values * norm + self.beta.values
+        return Tensor(out)
