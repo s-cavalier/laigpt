@@ -24,6 +24,15 @@ class DiagonalJacobianGradient(GradientFunction):
     def backward(self, output: np.ndarray, *inputs: np.ndarray) -> tuple[np.ndarray]:
         return output * self.forward(inputs[0])
 
+def reduce_to_shape(grad: np.ndarray, target_shape: tuple[int, ...]) -> np.ndarray:
+    """Reduce broadcasted gradients to match the parameter shape."""
+
+    while grad.ndim > len(target_shape):
+        grad = np.sum(grad, axis=0)
+    for i, (gdim, tdim) in enumerate(zip(grad.shape, target_shape)):
+        if gdim != tdim and tdim == 1:
+            grad = np.sum(grad, axis=i, keepdims=True)
+    return grad.reshape(target_shape)
 
 class Tensor:
     def __init__(self, values: np.ndarray, track_grad = True):
@@ -56,7 +65,11 @@ class Tensor:
                 "(likely a Tensor or Python object slipped through)"
             )
 
+        cost_value = reduce_to_shape(cost_value, self.values.shape)
+
         if self.grad_func is None:
+            if not self.track_grad: return
+
             if self.grad_value is None:
                 self.grad_value = cost_value
             else:
@@ -66,19 +79,21 @@ class Tensor:
                     )
                 if self.grad_value.dtype == object:
                     raise RuntimeError(
-                        f"grad_value of {self} has dtype=object — invalid state"
+                        f"grad_value of {self} has dtype=object, invalid state"
                     )
                 self.grad_value += cost_value
             return
 
         inputs = [parent.values for parent in self.parents]
-
         local_gradients = self.grad_func.backward(cost_value, *inputs)
         if not isinstance(local_gradients, tuple):
             local_gradients = (local_gradients,)
 
         for parent, gradient in zip(self.parents, local_gradients):
             if gradient is None:
+                continue
+
+            if not parent.track_grad:
                 continue
 
             if not isinstance(gradient, np.ndarray):
@@ -91,6 +106,8 @@ class Tensor:
                     f"Gradient returned by {self.grad_func} for parent {parent} "
                     f"has dtype=object — illegal state"
                 )
+
+            gradient = reduce_to_shape(gradient, parent.values.shape)
 
             parent.backpropagate(gradient)
 
@@ -193,13 +210,3 @@ class Tensor:
         
         return Transpose(axes)(self)
 
-
-def reduce_to_shape(grad: np.ndarray, target_shape: tuple[int, ...]) -> np.ndarray:
-    """Reduce broadcasted gradients to match the parameter shape."""
-
-    while grad.ndim > len(target_shape):
-        grad = np.sum(grad, axis=0)
-    for i, (gdim, tdim) in enumerate(zip(grad.shape, target_shape)):
-        if gdim != tdim and tdim == 1:
-            grad = np.sum(grad, axis=i, keepdims=True)
-    return grad.reshape(target_shape)

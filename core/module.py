@@ -2,6 +2,7 @@ import numpy as np
 from abc import ABCMeta, abstractmethod
 from autograd.tensor import Tensor
 import autograd.functions as F
+from typing import Callable
 
 class Module(metaclass=ABCMeta):
     def __init__(self):
@@ -10,10 +11,8 @@ class Module(metaclass=ABCMeta):
         self.training: bool = True
 
     def parameters(self):
-        for _, p in self.params.items():
-            yield p
-        for _, m in self.submodules.items():
-            yield from m.parameters()
+        for _, p in self.params.items(): yield p
+        for _, m in self.submodules.items(): yield from m.parameters()
 
     def zero_grad(self):
         for p in self.parameters():
@@ -46,7 +45,6 @@ class Module(metaclass=ABCMeta):
             self.params[name] = value
         elif isinstance(value, Module):
             self.submodules[name] = value
-
 
 
     @abstractmethod
@@ -92,10 +90,14 @@ class CrossEntropyLoss(Module):
 # Some basics
 
 class Linear(Module):
-    def __init__(self, in_dim: int, out_dim: int):
+    def __init__(self, in_dim: int, out_dim: int, init_fn: Callable[ [int, int], tuple[np.ndarray, np.ndarray] ] | None = None ):
         super().__init__()
-        self.W = Tensor(np.random.randn(in_dim, out_dim))
-        self.b = Tensor(np.zeros((1, out_dim)))
+        self.W = None 
+        self.b = None
+        if init_fn is not None: self.W, self.b = init_fn(in_dim, out_dim)
+        else: 
+            self.W = Tensor(np.random.randn(in_dim, out_dim))
+            self.b = Tensor(np.zeros((1, out_dim)))
 
     def __call__(self, x: Tensor):
         return x @ self.W + self.b
@@ -110,6 +112,22 @@ class Sequential(Module):
         for layer in self.submodules.values():
             x = layer(x)
         return x
+
+class Dropout(Module):
+    def __init__(self, p: float = 0.5):
+        super().__init__()
+        assert 0.0 <= p < 1.0, "Dropout probability must be in [0,1)"
+        self.p = p
+
+    def __call__(self, x: Tensor) -> Tensor:
+        if not self.training or self.p == 0.0: return x
+
+        keep_prob = 1.0 - self.p
+
+        mask = (np.random.rand(*x.values.shape) < keep_prob).astype(x.values.dtype)
+        mask /= keep_prob
+        mask_tensor = Tensor(mask, track_grad=False)
+        return x * mask_tensor
 
 class Embedding(Module):
     def __init__(self, vocab_size: int, dim: int):
@@ -131,20 +149,28 @@ class Embedding(Module):
 class LayerNorm(Module):
     def __init__(self, dim: int, eps: float = 1e-5):
         super().__init__()
-        self.gamma = Tensor(np.ones((dim,)))
-        self.beta = Tensor(np.zeros((dim,)))
+        self.dim = dim
         self.eps = eps
 
-    def __call__(self, x: Tensor) -> Tensor:
-        """
-        x: Tensor of shape (batch, seq_len, dim) or (seq_len, dim)
-        returns: same shape
-        """
-        # Compute mean/variance over the last dimension (features)
-        mean = np.mean(x.values, axis=-1, keepdims=True)
-        var = np.var(x.values, axis=-1, keepdims=True)
-        norm = (x.values - mean) / np.sqrt(var + self.eps)
+        self.gamma = Tensor(np.ones((dim,), dtype=np.float32))
+        self.beta  = Tensor(np.zeros((dim,), dtype=np.float32))
 
-        # Apply learnable affine parameters
-        out = self.gamma.values * norm + self.beta.values
-        return Tensor(out)
+    def __call__(self, x: Tensor) -> Tensor:
+
+        mean = F.Mean(axis=-1, keepdims=True)(x)
+
+        var  = F.Variance(axis=-1, keepdims=True)(x)
+
+        eps_tensor = Tensor(self.eps, track_grad=False)
+        std = F.sqrt(var + eps_tensor)
+
+        norm = (x - mean) / std
+
+        reshape_shape = (1,) * (len(x.values.shape) - 1) + (self.dim,)
+        gamma = self.gamma.reshape(reshape_shape)
+        beta  = self.beta.reshape(reshape_shape)
+
+        return norm * gamma + beta
+
+class SelfAttentionHead(Module):
+    ...

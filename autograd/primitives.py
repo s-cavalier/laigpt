@@ -26,7 +26,7 @@ class Function(metaclass=ABCMeta):
         inputs = [x.values for x in xs]
         result = self.func_impl(*inputs)
 
-        ret = Tensor(result, xs[0].track_grad)
+        ret = Tensor(result, any(x.track_grad for x in xs))
 
         if ret.track_grad:
             ret.grad_func = self.get_gradient()

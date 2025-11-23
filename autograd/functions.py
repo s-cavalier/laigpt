@@ -124,6 +124,45 @@ class Mean(Function):
     def get_gradient(self):
         return Mean.Gradient(self.axis, self.keepdims)
     
+class Variance(Function):
+    def __init__(self, axis=None, keepdims=False):
+        self.axis = axis
+        self.keepdims = keepdims
+
+    class Gradient(GradientFunction):
+        def __init__(self, axis=None, keepdims=False):
+            self.axis = axis
+            self.keepdims = keepdims
+
+        def forward(self, *inputs: np.ndarray) -> np.ndarray:
+            x = inputs[0]
+            m = np.mean(x, axis=self.axis, keepdims=True)
+            return 2 * (x - m) / (x.shape[self.axis] if self.axis is not None else x.size)
+
+        def backward(self, output: np.ndarray, *inputs: np.ndarray) -> np.ndarray:
+            x = inputs[0]
+
+            m = np.mean(x, axis=self.axis, keepdims=True)
+            n = (x.shape[self.axis] if self.axis is not None else x.size)
+
+            grad = 2 * (x - m) / n
+
+            if not self.keepdims and self.axis is not None:
+                grad_output = np.expand_dims(output, axis=self.axis)
+            else:
+                grad_output = output
+
+            return grad * grad_output
+
+    def func_impl(self, *x: np.ndarray) -> np.ndarray:
+        (a,) = x
+        m = np.mean(a, axis=self.axis, keepdims=True)
+        sq = (a - m) ** 2
+        return np.mean(sq, axis=self.axis, keepdims=self.keepdims)
+
+    def get_gradient(self):
+        return Variance.Gradient(self.axis, self.keepdims)
+    
 class MSE(Function):
     class Gradient(GradientFunction):
         def __init__(self, target: np.ndarray):
