@@ -35,6 +35,18 @@ class NumpyArraySource(DataSource):
     def __len__(self): return len(self.arr)
     def get_slice(self, start: int, end: int): return self.arr[start:end]
 
+class TextSource(DataSource):
+    def __init__(self, ids: np.ndarray):
+        assert ids.ndim == 1, "TextSource expects a 1-D array of token IDs"
+        self.ids = ids
+
+    def __len__(self):
+        return len(self.ids)
+
+    def get_slice(self, start: int, end: int) -> np.ndarray:
+        return self.ids[start:end]
+
+
 class MNISTData(DataStream):
 
     def __init__(self, img_src: DataSource, label_src: DataSource, batch_size : int, shuffle=True):
@@ -57,3 +69,59 @@ class MNISTData(DataStream):
         X = np.stack([self.sink.get_slice(i, i + 1)[0] for i in idx])
         Y = np.stack([self.spout.get_slice(i, i + 1)[0] for i in idx])
         return X, Y
+
+class GPTData(DataStream):
+    """
+    DataStream for GPT text training.
+
+    Given a 1-D sequence of token IDs, yields:
+        X: input sequence of length seq_len
+        Y: next-token targets of length seq_len
+    """
+
+    def __init__(
+        self,
+        token_source: DataSource, 
+        seq_len: int,
+        batch_size: int,
+        shuffle: bool = True
+    ):
+        super().__init__(token_source, token_source, batch_size)
+        self.seq_len = seq_len
+        self.shuffle = shuffle
+
+        self.n_tokens = len(token_source)
+        self.n_windows = self.n_tokens - seq_len
+
+        self.indices = np.arange(self.n_windows)
+        self.cursor = 0
+
+    def __len__(self):
+        return int(np.ceil(self.n_windows / self.batch_size))
+
+    def __iter__(self):
+        if self.shuffle:
+            np.random.shuffle(self.indices)
+        self.cursor = 0
+        return self
+
+    def __next__(self):
+        if self.cursor >= self.n_windows:
+            raise StopIteration
+
+        start_batch = self.cursor
+        end_batch = self.cursor + self.batch_size
+        idxs = self.indices[start_batch:end_batch]
+        self.cursor += self.batch_size
+
+        X = []
+        Y = []
+
+        for start in idxs:
+            x = self.sink.get_slice(start, start + self.seq_len)
+            y = self.spout.get_slice(start + 1, start + 1 + self.seq_len)
+
+            X.append(x)
+            Y.append(y)
+
+        return np.array(X, dtype=np.int32), np.array(Y, dtype=np.int32)

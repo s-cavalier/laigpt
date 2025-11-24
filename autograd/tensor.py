@@ -35,13 +35,17 @@ def reduce_to_shape(grad: np.ndarray, target_shape: tuple[int, ...]) -> np.ndarr
     return grad.reshape(target_shape)
 
 class Tensor:
-    def __init__(self, values: np.ndarray, track_grad = True):
-        self.values = np.asarray(values)
-        self.track_grad = track_grad
+    __slots__ = ("values", "track_grad", "grad_func", "grad_value", "parents")
 
-        self.grad_func : GradientFunction | None = None
-        self.grad_value : np.ndarray | None = None
-        self.parents : list[Tensor] = []
+    def __init__(self, values, track_grad=True):
+        arr = np.asarray(values)
+        if arr.dtype.kind == "f": arr = arr.astype(np.float32, copy=False) # Force f32
+        self.values = arr
+        self.track_grad = track_grad
+        self.grad_func = None
+        self.grad_value = None
+        self.parents = []
+
 
     def serialize_graph(self):
         this = "Tensor{" f"{self.values}, {self.grad_func.__class__.__qualname__}" "}"
@@ -51,65 +55,70 @@ class Tensor:
         return f"[{ ', '.join(parent.serialize_graph() for parent in self.parents) }] -> {this}"
 
     def backpropagate(self, cost_value=None):
-        if cost_value is None:
-            cost_value = np.ones_like(self.values)
+        if cost_value is None: cost_value = np.ones_like(self.values)
+
+        if isinstance(cost_value, Tensor): raise RuntimeError( "Invalid gradient type passed to backpropagate: got Tensor; expected a NumPy array or something convertible to one." )
 
         if not isinstance(cost_value, np.ndarray):
-            raise RuntimeError(
-                f"Invalid gradient type passed to backpropagate: {type(cost_value)} "
-                f"(expected np.ndarray)"
-            )
-        if cost_value.dtype == object:
-            raise RuntimeError(
-                "Invalid gradient dtype=object passed to backpropagate "
-                "(likely a Tensor or Python object slipped through)"
-            )
+            try: cost_value = np.asarray(cost_value)
+            except Exception as e: raise RuntimeError( f"Invalid gradient type passed to backpropagate: {type(cost_value)} " f"(could not convert to ndarray: {e})" )
+
+        if cost_value.dtype == object: raise RuntimeError( "Invalid gradient dtype=object passed to backpropagate " "(likely a Python object slipped into the graph)" )
 
         cost_value = reduce_to_shape(cost_value, self.values.shape)
 
-        if self.grad_func is None:
-            if not self.track_grad: return
+        topo: list["Tensor"] = []
+        visited: set[int] = set()
 
-            if self.grad_value is None:
-                self.grad_value = cost_value
-            else:
-                if not isinstance(self.grad_value, np.ndarray):
-                    raise RuntimeError(
-                        f"grad_value of {self} is not ndarray: {type(self.grad_value)}"
-                    )
-                if self.grad_value.dtype == object:
-                    raise RuntimeError(
-                        f"grad_value of {self} has dtype=object, invalid state"
-                    )
-                self.grad_value += cost_value
-            return
+        def build(node: "Tensor"):
+            nid = id(node)
+            if nid in visited:
+                return
+            visited.add(nid)
+            for parent in node.parents:
+                build(parent)
+            topo.append(node)
 
-        inputs = [parent.values for parent in self.parents]
-        local_gradients = self.grad_func.backward(cost_value, *inputs)
-        if not isinstance(local_gradients, tuple):
-            local_gradients = (local_gradients,)
+        build(self)
 
-        for parent, gradient in zip(self.parents, local_gradients):
-            if gradient is None:
+        for node in topo:
+            node.grad_value = None
+
+        self.grad_value = cost_value
+
+        for node in reversed(topo):
+            if node.grad_value is None or not node.track_grad:
+                node.parents = []
+                node.grad_func = None
                 continue
 
-            if not parent.track_grad:
+            if node.grad_func is None or not node.parents:
+                node.parents = []
+                node.grad_func = None
                 continue
 
-            if not isinstance(gradient, np.ndarray):
-                raise RuntimeError(
-                    f"Gradient returned by {self.grad_func} for parent {parent} "
-                    f"is not an ndarray (got {type(gradient)})"
-                )
-            if gradient.dtype == object:
-                raise RuntimeError(
-                    f"Gradient returned by {self.grad_func} for parent {parent} "
-                    f"has dtype=object — illegal state"
-                )
+            inputs = [parent.values for parent in node.parents]
+            local_grads = node.grad_func.backward(node.grad_value, *inputs)
 
-            gradient = reduce_to_shape(gradient, parent.values.shape)
+            if not isinstance(local_grads, tuple):
+                local_grads = (local_grads,)
 
-            parent.backpropagate(gradient)
+            for parent, gradient in zip(node.parents, local_grads):
+                if gradient is None or not parent.track_grad: continue
+
+                if not isinstance(gradient, np.ndarray):
+                    raise RuntimeError( f"Gradient returned by {node.grad_func} for parent {parent} " f"is not a NumPy array (got {type(gradient)})" )
+
+                if gradient.dtype == object: raise RuntimeError( f"Gradient returned by {node.grad_func} for parent {parent} " f"has dtype=object — illegal state" )
+
+                gradient = reduce_to_shape(gradient, parent.values.shape)
+
+                if parent.grad_value is None: parent.grad_value = gradient
+                else: parent.grad_value += gradient
+
+            node.parents = []
+            node.grad_func = None
+
 
 
 

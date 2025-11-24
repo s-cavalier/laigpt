@@ -2,6 +2,7 @@ import numpy as np
 from autograd.tensor import Tensor
 from autograd.functions import attention, gelu
 from core.module import Module, Linear, LayerNorm, ModuleList
+from core.tokenizer import Tokenizer
 
 class Embedding(Module):
     def __init__(self, vocab_size: int, dim: int):
@@ -130,9 +131,6 @@ class TransformerBlock(Module):
 
         return x
 
-def causal_mask(seq_len: int) -> Tensor:
-    mask_np = np.triu(np.ones((seq_len, seq_len), dtype=np.float32), k=1) * -1e9
-    return Tensor(mask_np, track_grad=False)
 
 class GPT(Module):
     def __init__(self, vocab_size, dim, num_heads, num_layers, max_seq_len,
@@ -141,6 +139,7 @@ class GPT(Module):
 
         self.token_embed = Embedding(vocab_size, dim)
         self.pos_embed   = PositionalEmbedding(max_seq_len, dim)
+        self.max_seq_len = max_seq_len
 
         self.blocks = ModuleList(
             [
@@ -154,8 +153,19 @@ class GPT(Module):
             ]
         )
 
+        self._mask_cache: dict[int, Tensor] = {}
+
         self.ln_f = LayerNorm(dim)
         self.lm_head = Linear(dim, vocab_size, bias=False)
+
+    def _get_causal_mask(self, seq_len: int) -> Tensor:
+        if seq_len not in self._mask_cache:
+            mask_np = np.triu(
+                np.ones((seq_len, seq_len), dtype=np.float32),
+                k=1
+            ) * -1e9
+            self._mask_cache[seq_len] = Tensor(mask_np, track_grad=False)
+        return self._mask_cache[seq_len]
 
     def __call__(self, tokens: Tensor, mask: Tensor | None = None) -> Tensor:
         b, s = tokens.values.shape
@@ -165,7 +175,7 @@ class GPT(Module):
         x = tok + pos
 
         if mask is None:
-            mask = causal_mask(s)
+            mask = self._get_causal_mask(s)
 
         for block in self.blocks:
             x = block(x, mask)
@@ -174,4 +184,44 @@ class GPT(Module):
         logits = self.lm_head(x)
         return logits
 
+    def generate(
+        self,
+        tokenizer: Tokenizer,
+        prompt: str,
+        steps: int = 100,
+        temperature: float = 1.0,
+        top_k: int | None = 50
+    ) -> str:
+
+        ids = tokenizer.encode(prompt)
+        ids = list(ids)
+
+        self.set_trainability(False)
+
+        for _ in range(steps):
+
+            ctx = ids[-self.max_seq_len :]
+
+            x = np.array(ctx, dtype=np.int32)[None, :]
+
+            logits = self(Tensor(x))             
+            last_logits = logits.values[0, -1]   
+
+            scaled = last_logits / max(temperature, 1e-8)
+            scaled -= np.max(scaled)
+
+            probs = np.exp(scaled)
+            probs /= np.sum(probs)
+
+            if top_k is not None and top_k < len(probs):
+                idx = np.argpartition(probs, -top_k)[-top_k:]
+                top_probs = probs[idx]
+                top_probs /= np.sum(top_probs)
+                next_id = int(np.random.choice(idx, p=top_probs))
+            else:
+                next_id = int(np.random.choice(len(probs), p=probs))
+
+            ids.append(next_id)
+
+        return tokenizer.decode(ids)
 

@@ -46,7 +46,7 @@ class Module(metaclass=ABCMeta):
     def zero_grad(self):
         for p in self.parameters():
             if p.grad_value is not None:
-                p.grad_value[:] = 0
+                p.grad_value = None
         
     def set_trainability(self, training_on = True):
         self.training = training_on
@@ -160,6 +160,8 @@ class ModuleList(Module):
     def extend(self, modules):
         for m in modules: self.append(m)
 
+    def __call__(self, *inputs):
+        raise NotImplementedError("ModuleList should just be a helper to store modules ina list and avoid setattr issues; it shouldn't be called")
 
 class Linear(Module):
     def __init__(self, in_dim: int, out_dim: int, init_fn: Callable[[int, int], tuple[np.ndarray, np.ndarray]] | None = None, bias: bool = True):
@@ -219,17 +221,14 @@ class LayerNorm(Module):
         self.gamma = Tensor(np.ones((dim,), dtype=np.float32))
         self.beta  = Tensor(np.zeros((dim,), dtype=np.float32))
 
+        self._eps_tensor = Tensor(self.eps, track_grad=False)
+
     def __call__(self, x: Tensor) -> Tensor:
-
         mean = F.Mean(axis=-1, keepdims=True)(x)
-
         var  = F.Variance(axis=-1, keepdims=True)(x)
-
-        eps_tensor = Tensor(self.eps, track_grad=False)
-        std = F.sqrt(var + eps_tensor)
+        std = F.sqrt(var + self._eps_tensor)
 
         norm = (x - mean) / std
-
         reshape_shape = (1,) * (len(x.values.shape) - 1) + (self.dim,)
         gamma = self.gamma.reshape(reshape_shape)
         beta  = self.beta.reshape(reshape_shape)

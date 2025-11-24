@@ -10,15 +10,13 @@ MODEL_PATH = "mnist_model.npz"
 
 class DigitDrawer:
     def __init__(self):
-        self.size = 280  # 10× MNIST to draw comfortably
+        self.size = 280 
         self.brush_size = 20
 
-        # Create model
         self.model = build_model()
         self.model.load(MODEL_PATH)
         self.model.set_trainability(False)
 
-        # GUI
         self.root = tk.Tk()
         self.root.title("MNIST Digit Classifier")
 
@@ -46,17 +44,16 @@ class DigitDrawer:
         self.pred_label.config(text="Prediction: None")
 
     def get_image(self):
-        # Get canvas content → convert to grayscale MNIST-style image
         self.canvas.update()
         self.canvas.postscript(file="temp.ps", colormode='color')
 
         img = Image.open("temp.ps")
-        img = img.convert("L")            # grayscale
-        img = ImageOps.invert(img)        # MNIST digits are white on black
-        img = img.resize((28, 28))        # downsample
+        img = img.convert("L")            
+        img = ImageOps.invert(img)        
+        img = img.resize((28, 28))       
         arr = np.array(img).astype(np.float32)
         arr /= 255.0
-        arr = arr.reshape(1, 784)         # model expects (1, 784)
+        arr = arr.reshape(1, 784)         
         return arr
 
     def predict(self):

@@ -350,7 +350,7 @@ class CrossEntropyLoss(Function):
 
     def get_gradient(self):
         return self.gradient
-    
+
     
 def scaled_dot_product_attention(Q: Tensor, K: Tensor, V: Tensor, mask: Tensor | None = None) -> Tensor:
     KT = K.transpose(-1, -2)
