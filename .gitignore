@@ -3,3 +3,5 @@ __pycache__
 *.npz
 *.ps
 *.txt
+!cppautograd/CMakeLists.txt
+cppautograd/build
