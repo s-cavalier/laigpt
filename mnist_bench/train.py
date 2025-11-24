@@ -4,9 +4,10 @@ from tqdm import tqdm
 
 from autograd.tensor import Tensor
 from autograd.functions import CrossEntropyLoss
-from core.module import Sequential, Linear, ReLU, LayerNorm
+from core.module import Sequential, Linear, ReLU, LayerNorm, Dropout
 from core.optimize import Adam
 from core.datastream import NumpyArraySource, MNISTData
+
 
 def preprocess():
     """Load and preprocess MNIST."""
@@ -17,10 +18,11 @@ def preprocess():
 
     return (train_x, train_y), (test_x, test_y)
 
+
 def he_init(in_dim, out_dim):
     W = np.random.randn(in_dim, out_dim).astype(np.float32) * np.sqrt(2.0 / in_dim)
     b = np.zeros((1, out_dim), dtype=np.float32)
-    return Tensor(W), Tensor(b)
+    return W, b
 
 
 def build_model():
@@ -28,24 +30,23 @@ def build_model():
         Linear(784, 256, init_fn=he_init),
         LayerNorm(256),
         ReLU(),
+        Dropout(0.2),
 
         Linear(256, 256, init_fn=he_init),
         LayerNorm(256),
         ReLU(),
+        Dropout(0.2),
 
         Linear(256, 128, init_fn=he_init),
         LayerNorm(128),
         ReLU(),
+        Dropout(0.2),
 
         Linear(128, 10, init_fn=he_init)
     )
 
 
 def accuracy(model, X, y, batch_size: int = 256) -> float:
-    """
-    Compute accuracy on a dataset X, y.
-    Uses batched inference for speed.
-    """
     model.set_trainability(False)
 
     n = X.shape[0]
@@ -54,14 +55,12 @@ def accuracy(model, X, y, batch_size: int = 256) -> float:
     for start in range(0, n, batch_size):
         end = min(start + batch_size, n)
         xb = Tensor(X[start:end])
-        logits = model(xb)  # shape (batch, 10)
+        logits = model(xb)
         preds = np.argmax(logits.values, axis=1)
         correct += np.sum(preds == y[start:end])
 
     return correct / n
 
-
-# --------------------- Training loop --------------------- #
 
 if __name__ == "__main__":
     np.random.seed(42)
@@ -72,7 +71,6 @@ if __name__ == "__main__":
     epochs = 10
     learning_rate = 1.5e-3
 
-    # Data stream (your custom iterator)
     train_stream = MNISTData(
         NumpyArraySource(train_x),
         NumpyArraySource(train_y),
@@ -80,7 +78,6 @@ if __name__ == "__main__":
         shuffle=True,
     )
 
-    # Build model & optimizer
     model = build_model()
     optimizer = Adam(model, lr=learning_rate)
 
@@ -92,13 +89,13 @@ if __name__ == "__main__":
         pbar = tqdm(train_stream, desc=f"Epoch {epoch + 1}/{epochs}")
 
         for X_batch, Y_batch in pbar:
-            X = Tensor(X_batch)      # track_grad=True by default
-            Y = Y_batch              # numpy int labels
+            X = Tensor(X_batch)
+            Y = Y_batch
 
             optimizer.zero_gradients()
 
             logits = model(X)
-            loss_fn = CrossEntropyLoss(Y)  # your stable combined softmax+CE
+            loss_fn = CrossEntropyLoss(Y)
             loss = loss_fn(logits)
 
             loss.backpropagate()
@@ -111,10 +108,12 @@ if __name__ == "__main__":
         avg_loss = float(np.mean(losses))
         print(f"Epoch {epoch + 1} complete. Avg loss: {avg_loss:.4f}")
 
-        # Validation on a subset for speed
         val_acc = accuracy(model, test_x[:2000], test_y[:2000])
         print(f"Validation accuracy (2k test samples): {val_acc:.3f}")
 
-    # Final evaluation on full test set
     final_acc = accuracy(model, test_x, test_y)
     print(f"\nFinal Test Accuracy: {final_acc:.3f}")
+
+    save_path = "mnist_model.npz"
+    model.save(save_path)
+    print(f"Saved trained MNIST model to {save_path}")

@@ -1,6 +1,5 @@
 import numpy as np
-from autograd.primitives import Function, GradientFunction, DiagonalJacobianGradient
-
+from autograd.primitives import Function, GradientFunction, DiagonalJacobianGradient, Tensor
 
 class Sine(Function):
     class Gradient(DiagonalJacobianGradient):
@@ -267,6 +266,34 @@ class Softmax(Function):
 
 softmax = Softmax()
 
+class GELU(Function):
+    def func_impl(self, *inputs: np.ndarray) -> np.ndarray:
+        (x,) = inputs
+        return 0.5 * x * (1.0 + np.tanh(
+            np.sqrt(2 / np.pi) * (x + 0.044715 * x**3)
+        )).astype(np.float32)
+
+    class Gradient(GradientFunction):
+        def forward(self, *inputs: np.ndarray) -> np.ndarray:
+            (x,) = inputs
+            t = np.tanh(np.sqrt(2/np.pi) * (x + 0.044715 * x**3))
+            dt = (1 - t**2) * np.sqrt(2/np.pi) * (1 + 3*0.044715*x**2)
+            return (0.5 * (1 + t) + 0.5 * x * dt).astype(np.float32)
+
+        def backward(self, grad_output: np.ndarray, *inputs: np.ndarray):
+            (x,) = inputs
+            t = np.tanh(np.sqrt(2/np.pi) * (x + 0.044715 * x**3))
+            dt = (1 - t**2) * np.sqrt(2/np.pi) * (1 + 3*0.044715*x**2)
+            dgelu = 0.5 * (1 + t) + 0.5 * x * dt
+            return grad_output * dgelu
+
+    gradient = Gradient()
+
+    def get_gradient(self):
+        return GELU.gradient
+
+gelu = GELU()
+
 class CrossEntropyLoss(Function):
 
     class Gradient(GradientFunction):
@@ -325,3 +352,19 @@ class CrossEntropyLoss(Function):
         return self.gradient
     
     
+def scaled_dot_product_attention(Q: Tensor, K: Tensor, V: Tensor, mask: Tensor | None = None) -> Tensor:
+    KT = K.transpose(-1, -2)
+    scores = Q @ KT
+
+    d = Q.values.shape[-1]
+    scale = Tensor(1.0 / np.sqrt(d), track_grad=False)
+    scores = scores * scale
+
+    if mask is not None: scores = scores + mask
+
+    weights = Softmax(axis=-1)(scores)
+
+    out = weights @ V
+    return out
+
+attention = scaled_dot_product_attention

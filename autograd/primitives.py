@@ -198,14 +198,19 @@ divide = Div()
 
 class MatMul(Function):
     class Gradient(GradientFunction):
-        def forward(self, *inputs: np.ndarray) -> np.ndarray:
+        def forward(self, *inputs: np.ndarray):
             a, b = inputs
-            return b.T, a.T
-        
-        def backward(self, grad_output: np.ndarray, *inputs: np.ndarray) -> tuple[np.ndarray]:
+            return b, a
+
+        def backward(self, grad_output: np.ndarray, *inputs: np.ndarray):
             a, b = inputs
-            dA = grad_output @ b.T
-            dB = a.T @ grad_output
+
+            b_T = np.swapaxes(b, -1, -2)
+            a_T = np.swapaxes(a, -1, -2)
+
+            dA = grad_output @ b_T
+            dB = a_T @ grad_output
+
             return dA, dB
 
     def func_impl(self, *x: np.ndarray) -> np.ndarray:
@@ -217,6 +222,7 @@ class MatMul(Function):
         return MatMul.gradient
 
 matrix_multiply = MatMul()
+
 
 class Pow(Function):
     class Gradient(GradientFunction):
