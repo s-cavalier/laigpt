@@ -132,19 +132,14 @@ class Dropout(Module):
 class Embedding(Module):
     def __init__(self, vocab_size: int, dim: int):
         super().__init__()
-        # Each row corresponds to one token's embedding vector
         self.weight = Tensor(
-            np.random.randn(vocab_size, dim) / np.sqrt(vocab_size)
+            (np.random.randn(vocab_size, dim) / np.sqrt(vocab_size)).astype(np.float32),
+            track_grad=True
         )
 
     def __call__(self, x: Tensor) -> Tensor:
-        """
-        x: Tensor of integer token IDs, shape (batch, seq_len)
-        returns: Tensor of embeddings, shape (batch, seq_len, dim)
-        """
-        # Gather rows of the embedding matrix corresponding to token IDs
-        embed_values = self.weight.values[x.values.astype(int)]
-        return Tensor(embed_values)
+        return self.weight[x]
+
 
 class LayerNorm(Module):
     def __init__(self, dim: int, eps: float = 1e-5):

@@ -34,6 +34,63 @@ class Function(metaclass=ABCMeta):
 
         return ret
 
+class Slice(Function):
+    def __init__(self, idx: int | slice | tuple[ int | slice, ... ] ):
+        if isinstance(idx, tuple): self.idx = idx
+        else: self.idx = (idx,)
+
+    class Gradient(GradientFunction):
+        def __init__(self, idx): self.idx = idx
+
+        def forward(self, *inputs: np.ndarray) -> np.ndarray:
+            raise RuntimeError("Slice.Gradient is not a valid gradient, since it's not a true functional operation")
+
+        def backward(self, output: np.ndarray, *inputs: np.ndarray):
+            (x,) = inputs
+            
+            grad_x = np.zeros_like(x)
+            grad_x[self.idx] = output
+            
+            return (grad_x,)
+
+    def func_impl(self, *x: np.ndarray):
+        (a,) = x
+        return a[self.idx]
+
+    def get_gradient(self):
+        return Slice.Gradient(self.idx)
+    
+class Lookup(Function):
+    def func_impl(self, *x: np.ndarray) -> np.ndarray:
+        weight, indices = x
+        return weight[indices]
+
+    class Gradient(GradientFunction):
+
+        def forward(self, *inputs: np.ndarray) -> np.ndarray:
+            RuntimeError("Lookup.Gradient is not a valid gradient, since it's not a true functional operation")
+
+        def backward(self, grad_output: np.ndarray, *inputs: np.ndarray):
+            weight, indices = inputs
+            indices = indices.astype(int)
+
+            grad_weight = np.zeros_like(weight)
+
+            flat_indices = indices.reshape(-1)
+            flat_grads = grad_output.reshape(flat_indices.shape[0], -1)
+
+            for idx, g in zip(flat_indices, flat_grads):
+                grad_weight[idx] += g
+
+            return (grad_weight, None)
+
+    gradient = Gradient()
+
+    def get_gradient(self):
+        return Lookup.gradient
+
+lookup = Lookup()
+
 class Neg(Function):
     class Gradient(GradientFunction):
         def forward(self, *inputs: np.ndarray) -> np.ndarray:

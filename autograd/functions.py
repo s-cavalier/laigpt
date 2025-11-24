@@ -247,7 +247,6 @@ class Softmax(Function):
 
         def forward(self, *inputs: np.ndarray) -> np.ndarray:
             (x,) = inputs
-            # Compute stable softmax
             e = np.exp(x - np.max(x, axis=self.axis, keepdims=True))
             s = e / np.sum(e, axis=self.axis, keepdims=True)
             return s
@@ -255,7 +254,6 @@ class Softmax(Function):
         def backward(self, grad_output: np.ndarray, *inputs: np.ndarray) -> np.ndarray:
             (x,) = inputs
             s = self.forward(x)
-            # Vectorized softmax gradient (Jacobian-vector product)
             dot = np.sum(grad_output * s, axis=self.axis, keepdims=True)
             return s * (grad_output - dot)
 
@@ -325,3 +323,5 @@ class CrossEntropyLoss(Function):
 
     def get_gradient(self):
         return self.gradient
+    
+    

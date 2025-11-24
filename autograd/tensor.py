@@ -200,6 +200,13 @@ class Tensor:
         from autograd.primitives import pow
         return pow(other, self)
     
+    def __getitem__(self, idx):
+        from autograd.primitives import Slice, lookup
+        
+        if isinstance(idx, Tensor): return lookup(self, idx)
+        
+        return Slice(idx)(self)
+    
     def reshape(self, shape: tuple[int, ...]):
         from autograd.primitives import Reshape
 
@@ -209,4 +216,10 @@ class Tensor:
         from autograd.primitives import Transpose
         
         return Transpose(axes)(self)
+    
+    def sum(self, axis=None, keepdims=False):
+        from autograd.functions import Sum
+        
+        return Sum(axis, keepdims)(self)
+
 
