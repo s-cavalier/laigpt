@@ -1,143 +1,134 @@
 import numpy as np
 from autograd.tensor import Tensor
-from core.module import Embedding 
-
-def expected_grad(vocab, dim, ids_np):
-    grad = np.zeros((vocab, dim), dtype=np.float32)
-    flat = ids_np.reshape(-1)
-    for idx in flat:
-        grad[idx] += 1.0
-    return grad
 
 
-def test_forward():
-    print("Test: forward")
+def assert_same(a, b, msg=""):
+    assert np.allclose(a, b), msg
 
-    vocab = 5
-    dim = 3
-    np.random.seed(0)
 
-    emb = Embedding(vocab, dim)
-    ids_np = np.array([1, 3], dtype=np.int32)
+def test_reverse_all_dims():
+    print("Test: transpose() reverses all dims")
+    x = Tensor(np.random.randn(2, 3, 4).astype(np.float32), track_grad=False)
 
-    out = emb(Tensor(ids_np))
+    y = x.transpose()
+    expected = np.transpose(x.values)
 
-    assert out.values.shape == (2, dim)
-    assert np.allclose(out.values, emb.weight.values[ids_np])
+    assert_same(y.values, expected)
     print("  OK")
 
 
-def test_backward_1d():
-    print("Test: backward 1D indices")
+def test_T_property():
+    print("Test: .T property matches transpose()")
+    x = Tensor(np.random.randn(5, 6).astype(np.float32), track_grad=False)
 
-    vocab, dim = 10, 4
-    np.random.seed(1)
+    y = x.T
+    expected = np.transpose(x.values)
 
-    emb = Embedding(vocab, dim)
-    ids_np = np.array([3, 1, 3], dtype=np.int32)
+    assert_same(y.values, expected)
+    print("  OK")
 
-    ids = Tensor(ids_np, track_grad=False)
-    out = emb(ids)
-    loss = out.sum()
+
+def test_two_axis_swap():
+    print("Test: transpose(a, b) axis swap")
+    x = Tensor(np.random.randn(2, 3, 4).astype(np.float32), track_grad=False)
+
+    y = x.transpose(1, 2)
+    expected = np.transpose(x.values, (0, 2, 1))
+
+    assert_same(y.values, expected)
+    print("  OK")
+
+
+def test_explicit_perm():
+    print("Test: explicit permutation tuple")
+    x = Tensor(np.random.randn(2, 3, 4).astype(np.float32), track_grad=False)
+
+    y = x.transpose((2, 0, 1))
+    expected = np.transpose(x.values, (2, 0, 1))
+
+    assert_same(y.values, expected)
+    print("  OK")
+
+
+def test_backward_reverse():
+    print("Test: backward for reverse transpose")
+
+    x_np = np.random.randn(2, 3, 4).astype(np.float32)
+    x = Tensor(x_np, track_grad=True)
+
+    y = x.transpose()      # reverse dims → shape (4,3,2)
+    loss = y.sum()
     loss.backpropagate()
 
-    expected = expected_grad(vocab, dim, ids_np)
+    # Gradient should be all ones, then inverse transpose() applied → same as reverse dims
+    expected_grad = np.transpose(np.ones_like(y.values), (2,1,0))
 
-    diff = np.abs(emb.weight.grad_value - expected).max()
-    print("  max diff:", diff)
-    assert diff == 0.0
+    assert_same(x.grad_value, expected_grad)
     print("  OK")
 
 
-def test_backward_2d():
-    print("Test: backward 2D (batch x seq)")
+def test_backward_two_axis_swap():
+    print("Test: backward for axis swap")
 
-    vocab, dim = 12, 5
-    np.random.seed(2)
+    x_np = np.random.randn(2, 3, 4).astype(np.float32)
+    x = Tensor(x_np, track_grad=True)
 
-    emb = Embedding(vocab, dim)
-    ids_np = np.array([[1, 2, 1], [0, 3, 3]], dtype=np.int32)
-
-    ids = Tensor(ids_np, track_grad=False)
-    out = emb(ids)
-    loss = out.sum()
+    y = x.transpose(1, 2)  # swap dims → shape (2,4,3)
+    loss = y.sum()
     loss.backpropagate()
 
-    expected = expected_grad(vocab, dim, ids_np)
+    # grad_y is all ones, inverse swap (1 <-> 2) gives:
+    expected_grad = np.transpose(np.ones_like(y.values), (0, 2, 1))
 
-    diff = np.abs(emb.weight.grad_value - expected).max()
-    print("  max diff:", diff)
-    assert diff == 0.0
+    assert_same(x.grad_value, expected_grad)
     print("  OK")
 
 
-def test_only_used_rows_have_grad():
-    print("Test: unused rows have zero grad")
+def test_backward_full_perm():
+    print("Test: backward for full permute")
 
-    vocab, dim = 8, 3
-    np.random.seed(3)
+    x_np = np.random.randn(2, 3, 4).astype(np.float32)
+    x = Tensor(x_np, track_grad=True)
 
-    emb = Embedding(vocab, dim)
-    ids_np = np.array([2, 5, 2], dtype=np.int32)
-
-    ids = Tensor(ids_np, track_grad=False)
-    out = emb(ids)
-    out.sum().backpropagate()
-
-    expected = expected_grad(vocab, dim, ids_np)
-
-    assert np.allclose(emb.weight.grad_value, expected)
-    print("  OK")
-
-
-def test_ids_get_no_grad():
-    print("Test: indices receive no gradient")
-
-    vocab, dim = 9, 3
-    np.random.seed(4)
-
-    emb = Embedding(vocab, dim)
-    ids_np = np.array([1, 8, 2], dtype=np.int32)
-
-    ids = Tensor(ids_np, track_grad=False)
-    out = emb(ids)
-    loss = out.sum()
+    perm = (2, 0, 1)
+    y = x.transpose(perm)
+    loss = y.sum()
     loss.backpropagate()
 
-    assert ids.grad_value is None
+    inv = np.argsort(perm)
+    expected_grad = np.transpose(np.ones_like(y.values), inv)
+
+    assert_same(x.grad_value, expected_grad)
     print("  OK")
 
 
-def test_large_random():
-    print("Test: large random stress test")
+def test_grad_shape_consistency():
+    print("Test: gradient shape matches input shape")
 
-    vocab, dim = 50, 8
-    B, T = 16, 10
+    x_np = np.random.randn(3, 4, 5, 6).astype(np.float32)
+    x = Tensor(x_np, track_grad=True)
 
-    np.random.seed(5)
-    emb = Embedding(vocab, dim)
-
-    ids_np = np.random.randint(0, vocab, size=(B, T), dtype=np.int32)
-    ids = Tensor(ids_np, track_grad=False)
-
-    out = emb(ids)
-    loss = out.sum()
+    y = x.transpose(0, 2)  # expand to full perm (0,2,1,3)
+    loss = y.sum()
     loss.backpropagate()
 
-    expected = expected_grad(vocab, dim, ids_np)
-    assert np.allclose(emb.weight.grad_value, expected)
+    assert x.grad_value.shape == x_np.shape
     print("  OK")
 
 
 def main():
-    print("=== Testing Embedding Module ===\n")
-    test_forward()
-    test_backward_1d()
-    test_backward_2d()
-    test_only_used_rows_have_grad()
-    test_ids_get_no_grad()
-    test_large_random()
-    print("\n=== All Embedding Module Tests Passed ===")
+    print("=== Testing Transpose ===\n")
+
+    test_reverse_all_dims()
+    test_T_property()
+    test_two_axis_swap()
+    test_explicit_perm()
+    test_backward_reverse()
+    test_backward_two_axis_swap()
+    test_backward_full_perm()
+    test_grad_shape_consistency()
+
+    print("\n=== All Transpose tests passed ===")
 
 
 if __name__ == "__main__":

@@ -288,12 +288,30 @@ class Reshape(ViewOperation):
 class Transpose(ViewOperation):
     def __init__(self, axes=None):
         self.axes = axes
+        self.full_axes = None
         self.inverse_axes = None
 
-        def reverse( x: np.ndarray ) -> np.ndarray: return np.transpose(x, self.inverse_axes)
-
+        def reverse(x: np.ndarray) -> np.ndarray: return np.transpose(x, self.inverse_axes)
         super().__init__(reverse)
 
-    def func_impl(self, *x: np.ndarray) -> np.ndarray:
-        self.inverse_axes = ( np.argsort(self.axes) if self.axes is not None else None )
-        return np.transpose(x[0], self.axes)
+    def func_impl(self, *inputs: np.ndarray) -> np.ndarray:
+        x = inputs[0]
+        ndim = x.ndim
+
+        if self.axes is None: self.full_axes = tuple(reversed(range(ndim)))
+
+        elif isinstance(self.axes, (tuple, list)):
+            if len(self.axes) == ndim:
+                self.full_axes = tuple(self.axes)
+            elif len(self.axes) == 2:
+                a, b = self.axes
+                perm = list(range(ndim))
+                perm[a], perm[b] = perm[b], perm[a]
+                self.full_axes = tuple(perm)
+            else: raise RuntimeError(f"Invalid transpose axes {self.axes} for tensor of shape {x.shape}")
+
+        else: raise RuntimeError("axes should already be normalized by Tensor.transpose")
+
+        self.inverse_axes = tuple(np.argsort(self.full_axes))
+
+        return np.transpose(x, self.full_axes)

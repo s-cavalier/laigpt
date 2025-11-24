@@ -212,10 +212,19 @@ class Tensor:
 
         return Reshape(shape)(self)
     
-    def transpose(self, axes=None):
+    def transpose(self, *axes):
         from autograd.primitives import Transpose
-        
+
+        if len(axes) == 0: axes = None
+
+        elif len(axes) == 1 and isinstance(axes[0], (tuple, list)): axes = tuple(axes[0])
+
+        else: axes = tuple(axes)
+
         return Transpose(axes)(self)
+    
+    @property
+    def T(self): return self.transpose()
     
     def sum(self, axis=None, keepdims=False):
         from autograd.functions import Sum
