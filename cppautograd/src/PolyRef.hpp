@@ -2,9 +2,7 @@
 #define __POLY_REF_HPP__
 
 #include <cstddef>
-#include <cstdint>
-#include <new>
-#include <type_traits>
+#include <concepts>
 #include <cstring>
 
 /*
@@ -18,7 +16,14 @@ This helps prevent unnecessary heap allocs.
 
 
 */
-template <class Base, size_t SBO_SIZE = 32>
+
+template <class Base>
+concept SBOQualified = requires(const Base a) {
+    a.stack_clone( (void*)nullptr );
+    { a.heap_clone() } -> std::same_as<Base*>;
+};
+
+template <class Base, size_t SBO_SIZE = 32> requires (SBOQualified<Base>)
 class PolyRef {
 public:
     enum Mode : uint8_t { Unspecified, Static, SBO, Heap };
@@ -162,13 +167,13 @@ public:
     }
 
 
-    template<class T, class... Args>
+    template<class T, class... Args> requires ( std::derived_from<T, Base> && std::constructible_from<T, Args...> )
     static PolyRef emplace(Args&&... args) {
-        static_assert(std::is_base_of_v<Base, T>, "T must derive from Base");
 
         PolyRef p;
 
-        constexpr bool is_static = sizeof(T) == sizeof(void*); // If it just has one vptr it'll be size at least 8, and if it onyl has the vptr, it's size 8. It must have a vptr since we statically assert it derives from Base.
+        constexpr bool is_static = sizeof(T) == sizeof(void*); 
+        // If it just has one vptr it'll be size at least 8, and if it onyl has the vptr, it's size 8. It must have a vptr since we statically assert it derives from Base.
 
         constexpr bool fits_sbo = sizeof(T) <= SBO_SIZE && alignof(T) <= alignof(std::max_align_t);
 

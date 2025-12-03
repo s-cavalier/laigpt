@@ -1,20 +1,16 @@
 #ifndef __SMALL_VECTOR_HPP__
 #define __SMALL_VECTOR_HPP__
 
-#include <cstddef>
-#include <cstring>
-#include <type_traits>
-#include <new>
-#include <functional>
 #include <iterator>
+#include <cstring>
+#include <concepts>
 
 /*
 Small Vector implementation; uses SBO on a trivially copyable T. Optimal choices of SBO_BYTES are powers of 2 minus one, so 23, 31, 47, etc. based on 
 how much space you want to alloc for SBO. Some convience choices are in the form of SVec{24, 32, 48}<T>
 */
-template<typename T, size_t SBO_BYTES>
+template<class T, size_t SBO_BYTES> requires (std::is_trivially_copyable_v<T>)
 class SmallVec {
-    static_assert(std::is_trivially_copyable_v<T>, "SmallVec requires trivially copyable T.");
     static_assert(SBO_BYTES >= sizeof(T), "SBO_BYTES must be >= sizeof(T).");
 
     struct HeapData {
@@ -240,9 +236,8 @@ public:
         push_back(v);
     }
 
-    template<typename... Args>
+    template<typename... Args> requires (std::constructible_from<T, Args...>)
     void emplace_back(Args&&... args) {
-        static_assert(std::is_trivially_copy_constructible_v<T>, "SmallVec<T>::emplace_back requires trivial T.");
         T temp{ std::forward<Args>(args)... };
         push_back(temp);
     }
