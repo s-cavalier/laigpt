@@ -32,8 +32,7 @@ pkg_check_modules(OPENBLAS REQUIRED openblas)
 
 add_executable(cppautograd
     src/main.cpp
-    src/Tensor.cpp
-    src/Primitives.cpp
+
 )
 
 target_include_directories(cppautograd PRIVATE
