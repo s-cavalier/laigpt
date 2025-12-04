@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <functional>
 
 namespace ag {
 
@@ -39,10 +40,24 @@ namespace ag {
 
             void reset() noexcept { offset = 0; }
 
-
+            friend bool operator==(const MemoryArena& a, const MemoryArena& b) { return a.buffer == b.buffer; }
+            friend bool operator!=(const MemoryArena& a, const MemoryArena& b) { return a.buffer != b.buffer; }
         };
 
+        
 
+        template <class T>
+        class NetworkAllocator {
+            std::reference_wrapper<MemoryArena> mem_src;
+        
+        public:
+            using value_type = T;
+
+            NetworkAllocator( MemoryArena& src ) : mem_src(src) {}
+            
+            
+
+        };
 
 
 
