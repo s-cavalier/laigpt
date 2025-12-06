@@ -13,6 +13,15 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(xtl)
 
+
+FetchContent_Declare(
+    xsimd
+    GIT_REPOSITORY https://github.com/xtensor-stack/xsimd.git
+    GIT_TAG 11.0.0
+)
+FetchContent_MakeAvailable(xsimd)
+
+
 FetchContent_Declare(
     xtensor
     GIT_REPOSITORY https://github.com/xtensor-stack/xtensor.git
@@ -32,12 +41,13 @@ pkg_check_modules(OPENBLAS REQUIRED openblas)
 
 add_executable(cppautograd
     src/main.cpp
-
+    src/TensorNetwork.cpp
 )
 
 target_include_directories(cppautograd PRIVATE
-    ${xtensor_SOURCE_DIR}/include
     ${xtl_SOURCE_DIR}/include
+    ${xsimd_SOURCE_DIR}/include
+    ${xtensor_SOURCE_DIR}/include
     ${xtensor_blas_SOURCE_DIR}/include
     ${OPENBLAS_INCLUDE_DIRS}
 )
@@ -45,6 +55,7 @@ target_include_directories(cppautograd PRIVATE
 target_link_libraries(cppautograd PRIVATE
     xtensor
     xtl
+    xsimd                             
     xtensor-blas
     ${OPENBLAS_LIBRARIES}
 )
@@ -52,3 +63,5 @@ target_link_libraries(cppautograd PRIVATE
 target_compile_options(cppautograd PRIVATE
     -Wall -Wextra -Wpedantic -O3 -march=native
 )
+
+target_compile_definitions(cppautograd PRIVATE XTENSOR_USE_XSIMD=1)
