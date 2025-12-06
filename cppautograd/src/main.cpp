@@ -7,9 +7,7 @@
 
 #include <algorithm>
 
-#include <xtensor/xmath.hpp>
-
-#include <xtensor/xnoalias.hpp>
+#include "Primitives.hpp"
 
 template <class T>
 using storage_container = SmallVec<T, 23, ag::TensorNetwork::BumpAllocator<T>>;
@@ -20,12 +18,11 @@ int main() {
 
     ag::TensorNetwork network;
     
-    ag::arena_xarray<float> arr(network);
-    arr = { 1. , 0.5 , 0.25 };
+    ag::Tensor x( { {1. , 0.5} , {0.25, 0.125} }, network );
 
-    auto new_arr = xt::sin(arr);
-    xt::noalias(arr) = new_arr / xt::cos(arr);
+    ag::Tensor y = ag::sin( x );
 
+    std::cout << y.serialize_graph(false) << '\n';
 
     return 0;
 }

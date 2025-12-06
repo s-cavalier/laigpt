@@ -325,7 +325,7 @@ public:
 
         if (new_size <= cur) {
             if (using_sbo()) storage.sbo.size = static_cast<unsigned char>(new_size);
-            
+
             else storage.heap.size = new_size;
             
             return;
@@ -356,15 +356,16 @@ public:
 
 };
 
+// Same size as default vector.
+template <class T, class Allocator = std::allocator<T> >
+using SVec24 = SmallVec<T, 23, Allocator>;
 
-template <class T>
-using SVec24 = SmallVec<T, 23>;
+// 8 extra bytes for SBO.
+template <class T, class Allocator = std::allocator<T>>
+using SVec32 = SmallVec<T, 31, Allocator>;
 
-template <class T>
-using SVec32 = SmallVec<T, 31>;
-
-template <class T>
-using SVec48 = SmallVec<T, 47>;
+template <class T, class Allocator = std::allocator<T>>
+using SVec48 = SmallVec<T, 47, Allocator>;
 
 template <class T>
 using RefVec24 = SVec24< std::reference_wrapper< T >>;

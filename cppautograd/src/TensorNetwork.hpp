@@ -1,5 +1,5 @@
-#ifndef __TENSOR_HPP__
-#define __TENSOR_HPP__
+#ifndef __TENSOR_NETWORK_HPP__
+#define __TENSOR_NETWORK_HPP__
 
 #include <cstddef>
 #include <memory>
@@ -11,6 +11,7 @@
 #include <xtensor/xiterable.hpp>
 #include <xtensor/xstrides.hpp>
 #include <xtensor/xarray.hpp>
+#include <xtensor/xnoalias.hpp>
 
 namespace ag {
 
@@ -345,11 +346,7 @@ namespace ag {
         raw_fields_type m_raw;
     };
 
-    template <class T>
-    using ref = std::reference_wrapper<T>;
-
-
-
+    using xt::noalias;
 
 }
 
