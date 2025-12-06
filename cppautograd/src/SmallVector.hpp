@@ -4,29 +4,35 @@
 #include <iterator>
 #include <cstring>
 #include <concepts>
+#include <memory>
 
 /*
 Small Vector implementation; uses SBO on a trivially copyable T. Optimal choices of SBO_BYTES are powers of 2 minus one, so 23, 31, 47, etc. based on 
 how much space you want to alloc for SBO. Some convience choices are in the form of SVec{24, 32, 48}<T>
 */
-template<class T, size_t SBO_BYTES> requires (std::is_trivially_copyable_v<T>)
+#include <memory>
+
+template<class T, size_t SBO_BYTES, class Alloc = std::allocator<T>>
+requires (std::is_trivially_copyable_v<T> && SBO_BYTES >= sizeof(T) )
 class SmallVec {
-    static_assert(SBO_BYTES >= sizeof(T), "SBO_BYTES must be >= sizeof(T).");
+
+    using AllocTraits = std::allocator_traits<Alloc>;
+
+    Alloc alloc; // Can't be part of the union since we'd lose switching SBO -> heap.
 
     struct HeapData {
-        T*     ptr;     
-        size_t size;    
-        size_t cap;     
-    };                  
+        T*     ptr;
+        size_t size;
+        size_t cap;
+    };
 
     static constexpr size_t SBO_CAP = SBO_BYTES / sizeof(T);
 
     union Storage {
         HeapData heap;
-
         struct {
             alignas(T) std::byte data[SBO_BYTES];
-            unsigned char size;       
+            unsigned char size;
         } sbo;
 
         Storage() {}
@@ -41,40 +47,48 @@ class SmallVec {
         return storage.sbo.size > SBO_CAP;
     }
 
+    T* alloc_raw(size_t n) {
+        return AllocTraits::allocate(alloc, n);
+    }
+
+    void free_raw(T* p, size_t n) {
+        AllocTraits::deallocate(alloc, p, n);
+    }
+
     void migrate_to_heap() {
         const T* arr = reinterpret_cast<const T*>(storage.sbo.data);
 
         size_t sz  = SBO_CAP;
         size_t cap = (SBO_CAP < 4 ? 4 : SBO_CAP * 2);
 
-        T* newptr = static_cast<T*>(::operator new(cap * sizeof(T)));
+        T* newptr = alloc_raw(cap);
         std::memcpy(newptr, arr, sz * sizeof(T));
 
-        storage.heap.ptr  = newptr;
+        storage.heap.ptr = newptr;
         storage.heap.size = sz;
-        storage.heap.cap  = cap;
+        storage.heap.cap = cap;
 
         storage.sbo.size = SBO_CAP + 1;
     }
 
     void grow_heap() {
         size_t newcap = storage.heap.cap * 2;
-        T* newptr = static_cast<T*>(::operator new(newcap * sizeof(T)));
+        T* newptr = alloc_raw(newcap);
 
         std::memcpy(newptr, storage.heap.ptr, storage.heap.size * sizeof(T));
 
-        ::operator delete(storage.heap.ptr);
+        free_raw(storage.heap.ptr, storage.heap.cap);
         storage.heap.ptr = newptr;
         storage.heap.cap = newcap;
     }
 
 public:
 
-    SmallVec() noexcept {
+    SmallVec(const Alloc& a = Alloc()) noexcept : alloc(a) {
         storage.sbo.size = 0;
     }
 
-    SmallVec(std::initializer_list<T> init) {
+    SmallVec(std::initializer_list<T> init, const Alloc& a = Alloc()) : alloc(a) {
         size_t n = init.size();
 
         if (n <= SBO_CAP) {
@@ -84,7 +98,7 @@ public:
         }
 
         size_t cap = (n < 4 ? 4 : n);
-        T* newptr = static_cast<T*>(::operator new(cap * sizeof(T)));
+        T* newptr = alloc_raw(cap);
 
         std::memcpy(newptr, init.begin(), n * sizeof(T));
 
@@ -96,37 +110,36 @@ public:
     }
 
     template <std::forward_iterator It>
-    SmallVec( It from, It to ) {
+    SmallVec(It from, It to, const Alloc& a = Alloc())
+        : alloc(a)
+    {
         storage.sbo.size = 0;
-
-        while ( from != to ) {
-            emplace_back( *from );
+        while (from != to) {
+            emplace_back(*from);
             ++from;
         }
     }
 
-
     ~SmallVec() {
-        if (using_heap()) ::operator delete(storage.heap.ptr);
+        if (using_heap()) free_raw(storage.heap.ptr, storage.heap.cap);
     }
 
-    SmallVec(const SmallVec& other) noexcept {
+    SmallVec(const SmallVec& other) : alloc(AllocTraits::select_on_container_copy_construction(other.alloc)) {
         if (other.using_sbo()) {
             storage = other.storage;
             return;
         }
 
-        size_t sz  = other.storage.heap.size;
+        size_t sz = other.storage.heap.size;
         size_t cap = other.storage.heap.cap;
-        T* newptr = static_cast<T*>(::operator new(cap * sizeof(T)));
+        T* newptr = alloc_raw(cap);
 
         std::memcpy(newptr, other.storage.heap.ptr, sz * sizeof(T));
-        storage.heap.ptr  = newptr;
+        storage.heap.ptr = newptr;
         storage.heap.size = sz;
-        storage.heap.cap  = cap;
+        storage.heap.cap = cap;
 
         storage.sbo.size = SBO_CAP + 1;
-        
     }
 
     SmallVec& operator=(const SmallVec& other) noexcept {
@@ -136,7 +149,7 @@ public:
         return *this;
     }
 
-    SmallVec(SmallVec&& other) noexcept {
+    SmallVec(SmallVec&& other) noexcept : alloc(std::move(other.alloc)) {
         if (other.using_sbo()) {
             storage = other.storage;
             return;
@@ -146,7 +159,6 @@ public:
         storage.sbo.size = SBO_CAP + 1;
 
         other.storage.sbo.size = 0;
-    
     }
 
     SmallVec& operator=(SmallVec&& other) noexcept {
@@ -156,6 +168,62 @@ public:
         return *this;
     }
 
+    void reserve(size_t new_cap) {
+        if (using_sbo()) {
+            if (new_cap <= SBO_CAP) return;
+
+            size_t old_size = storage.sbo.size;
+            const T* old_data = reinterpret_cast<const T*>(storage.sbo.data);
+
+            size_t heap_cap = (new_cap < 4 ? 4 : new_cap);
+            T* newptr = alloc_raw(heap_cap);
+
+            std::memcpy(newptr, old_data, old_size * sizeof(T));
+
+            storage.heap.ptr = newptr;
+            storage.heap.size = old_size;
+            storage.heap.cap = heap_cap;
+            storage.sbo.size = SBO_CAP + 1;
+            return;
+        }
+
+        if (new_cap <= storage.heap.cap) return;
+
+        size_t old_cap = storage.heap.cap;
+        size_t old_size = storage.heap.size;
+
+        size_t heap_cap = new_cap;
+        if (heap_cap < old_cap * 2) heap_cap = old_cap * 2;
+
+        T* newptr = alloc_raw(heap_cap);
+        std::memcpy(newptr, storage.heap.ptr, old_size * sizeof(T));
+
+        free_raw(storage.heap.ptr, old_cap);
+        storage.heap.ptr = newptr;
+        storage.heap.cap = heap_cap;
+    }
+
+    void change_allocator(const Alloc& new_alloc) {
+        if (using_sbo()) {
+            alloc = new_alloc;
+            return;
+        }
+
+        size_t sz  = storage.heap.size;
+        size_t cap = storage.heap.cap;
+
+        Alloc old_alloc = std::move(alloc);
+        alloc = new_alloc;
+
+        T* newptr = AllocTraits::allocate(alloc, cap);
+        std::memcpy(newptr, storage.heap.ptr, sz * sizeof(T));
+
+        AllocTraits::deallocate(old_alloc, storage.heap.ptr, cap);
+
+        storage.heap.ptr = newptr;
+    }
+
+    
     size_t size() const noexcept {
         return using_sbo() ? storage.sbo.size : storage.heap.size;
     }
@@ -194,50 +262,13 @@ public:
         storage.heap.ptr[storage.heap.size++] = v;
     }
 
-    void reserve(size_t new_cap) {
-        if (using_sbo()) {
-            if (new_cap <= SBO_CAP) return;
-
-            size_t old_size = storage.sbo.size;
-            const T* old_data = reinterpret_cast<const T*>(storage.sbo.data);
-
-            std::size_t heap_cap = (new_cap < 4 ? 4 : new_cap);
-            T* newptr = static_cast<T*>(::operator new(heap_cap * sizeof(T)));
-
-            std::memcpy(newptr, old_data, old_size * sizeof(T));
-
-            storage.heap.ptr  = newptr;
-            storage.heap.size = old_size;
-            storage.heap.cap  = heap_cap;
-
-            storage.sbo.size = SBO_CAP + 1;
-            return;
-        }
-
-        if (new_cap <= storage.heap.cap) return;
-
-        size_t old_cap  = storage.heap.cap;
-        size_t old_size = storage.heap.size;
-
-        size_t heap_cap = new_cap;
-
-        if (heap_cap < old_cap * 2) heap_cap = old_cap * 2;
-
-        T* newptr = static_cast<T*>(::operator new(heap_cap * sizeof(T)));
-        std::memcpy(newptr, storage.heap.ptr, old_size * sizeof(T));
-
-        ::operator delete(storage.heap.ptr);
-        storage.heap.ptr = newptr;
-        storage.heap.cap = heap_cap;
-    }
-
-
     void emplace_back(const T& v) {
         push_back(v);
     }
 
-    template<typename... Args> requires (std::constructible_from<T, Args...>)
+    template<typename... Args>
     void emplace_back(Args&&... args) {
+        static_assert(std::is_trivially_copy_constructible_v<T>, "SmallVec<T>::emplace_back requires trivial T.");
         T temp{ std::forward<Args>(args)... };
         push_back(temp);
     }
@@ -285,7 +316,46 @@ public:
         return data() + size();
     }
 
+    void resize(size_t new_size) {
+        resize(new_size, T{});
+    }
+
+    void resize(size_t new_size, const T& value) {
+        size_t cur = size();
+
+        if (new_size <= cur) {
+            if (using_sbo()) storage.sbo.size = static_cast<unsigned char>(new_size);
+            
+            else storage.heap.size = new_size;
+            
+            return;
+        }
+
+        size_t add = new_size - cur;
+
+        if (using_sbo()) {
+            if (new_size <= SBO_CAP) {
+                T* arr = reinterpret_cast<T*>(storage.sbo.data);
+                for (size_t i = 0; i < add; ++i) arr[cur + i] = value;
+
+                storage.sbo.size = static_cast<unsigned char>(new_size);
+                return;
+            }
+
+            migrate_to_heap();
+            cur = storage.heap.size;
+        }
+
+        if (new_size > storage.heap.cap) reserve(new_size);
+        
+        for (size_t i = 0; i < add; ++i) storage.heap.ptr[cur + i] = value;
+
+        storage.heap.size = new_size;
+    }
+
+
 };
+
 
 template <class T>
 using SVec24 = SmallVec<T, 23>;
