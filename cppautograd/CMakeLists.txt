@@ -36,6 +36,12 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(xtensor_blas)
 
+FetchContent_Declare(
+    std_function
+    GIT_REPOSITORY https://github.com/skarupke/std_function.git
+)
+FetchContent_MakeAvailable(std_function)
+
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(OPENBLAS REQUIRED openblas)
 
@@ -51,6 +57,7 @@ target_include_directories(cppautograd PRIVATE
     ${xsimd_SOURCE_DIR}/include
     ${xtensor_SOURCE_DIR}/include
     ${xtensor_blas_SOURCE_DIR}/include
+    ${std_function}
     ${OPENBLAS_INCLUDE_DIRS}
 )
 

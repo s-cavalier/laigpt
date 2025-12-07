@@ -13,6 +13,9 @@
 #include <xtensor/xarray.hpp>
 #include <xtensor/xnoalias.hpp>
 
+// Really nice performant std::function implementation
+#include "function.hpp"
+
 namespace ag {
 
     class TensorNetwork {
@@ -40,7 +43,9 @@ namespace ag {
                 void* ptr = (void*)(buffer + offset);
                 size_t space = size - offset;
                 
-                if ( !std::align( alignment, bytes, ptr, space ) ) throw std::bad_alloc();
+                if ( !std::align( alignment, bytes, ptr, space ) ) {
+                    throw std::runtime_error("TensorNetwork ran out of memory.");
+                }
                 
                 offset = ( (std::byte*)(ptr) - buffer ) + bytes;
                 return (T*)ptr;
@@ -62,6 +67,8 @@ namespace ag {
 
         public:
             using value_type = T;
+            using pointer = T*;
+
 
             using propagate_on_container_copy_assignment = std::true_type;
             using propagate_on_container_move_assignment = std::true_type;
@@ -98,6 +105,7 @@ namespace ag {
                 return arena != other.arena;
             }
 
+            
 
         };
 
@@ -347,6 +355,37 @@ namespace ag {
     };
 
     using xt::noalias;
+
+    /*
+    
+    Some small wrappers around the function implementation.
+    Can't find a good impl with an allocator type, but this is a fair workaround.
+    
+    */
+
+    template<class>
+    struct function_signature {};
+
+    template<class Sig, class F>
+    auto make_arena_function(ag::TensorNetwork& net, F&& f) {
+        return make_arena_function(function_signature<Sig>{}, net, std::forward<F>(f));
+    }
+
+    template<class Ret, class... Args, class F>
+    auto make_arena_function(function_signature<Ret(Args...)>, ag::TensorNetwork& net, F&& f) {
+
+        using Functor = std::remove_cvref_t<F>;
+
+        auto alloc = net.get_allocator<Functor>();
+        Functor* p = alloc.allocate(1);
+        std::construct_at(p, std::forward<F>(f));
+
+        return func::function<Ret(Args...)>(
+            [p](Args... a) -> Ret {
+                return (*p)(std::forward<Args>(a)...);
+            }
+        );
+    }
 
 }
 

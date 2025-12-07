@@ -1,6 +1,8 @@
 #include "Tensor.hpp"
 #include <xtensor/xio.hpp>
 
+#include "Primitives.hpp"
+
 ag::Tensor::Node& ag::Tensor::operator*() {
     return node.get();
 }
@@ -87,7 +89,7 @@ std::string ag::Tensor::Node::serialize_graph(bool include_values) const {
         out << "]\n";
 
         if (include_values) {
-            out << "  values:\n" << values << '\n';
+            out << "  values:\n" << n->values << '\n';
         } else {
             out << "  values: <omitted>\n";
         }
@@ -125,4 +127,28 @@ ag::Tensor ag::Tensor::get_clone() const {
 
 std::string ag::Tensor::serialize_graph(bool include_values) const {
     return node.get().serialize_graph(include_values);
+}
+
+void ag::Tensor::backpropagate(const arena_f32arr* cost) {
+    
+}
+
+ag::Tensor ag::Tensor::operator-() const {
+    return neg(*this);
+}
+
+ag::Tensor ag::operator+(const Tensor& a, const Tensor& b) {
+    return add(a, b);
+}
+
+ag::Tensor ag::operator-(const Tensor& a, const Tensor& b) {
+    return sub(a, b);
+}
+
+ag::Tensor ag::operator*(const Tensor& a, const Tensor& b) {
+    return mul(a, b);
+}
+
+ag::Tensor ag::operator/(const Tensor& a, const Tensor& b) {
+    return div(a, b);
 }
